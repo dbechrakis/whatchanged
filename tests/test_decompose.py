@@ -197,3 +197,56 @@ def test_too_many_factors_and_unknown_dimensions_are_refused():
         decompose(cube, [])
     with pytest.raises(WhatChangedError, match="missing must be"):
         decompose(cube, ["d0"], missing="skip")  # type: ignore[arg-type]
+
+
+def revenue_table():
+    return pd.DataFrame(
+        {
+            "side": ["a", "a", "a", "b", "b", "b"],
+            "region": ["n", "s", "e", "n", "s", "w"],
+            "revenue": [100.0, 60.0, 20.0, 150.0, 40.0, 30.0],
+            "units": [10.0, 5.0, 4.0, 10.0, 5.0, 6.0],
+        }
+    )
+
+
+def test_a_sum_with_units_splits_into_volume_and_value_per_unit():
+    from whatchanged import Sum
+
+    df = revenue_table().iloc[[0, 1, 3, 4]]
+    cube = aggregate(df, Sum("revenue", units="units"), "side", "a", "b", ["region"])
+    result = decompose(cube, ["region"])
+    parts = result.components.set_index("component")["contribution"]
+    assert parts["volume"] == pytest.approx(0.0)
+    assert parts["value"] == pytest.approx(30.0)
+    assert parts.sum() == pytest.approx(result.change) and result.kind == "exact"
+    by_cell = result.cells.set_index(["region", "component"])["contribution"]
+    assert by_cell[("n", "value")] == pytest.approx(50.0)
+    assert by_cell[("s", "value")] == pytest.approx(-20.0)
+
+
+def test_volume_and_value_with_cells_that_enter_and_leave():
+    from whatchanged import Sum
+
+    cube = aggregate(revenue_table(), Sum("revenue", units="units"), "side", "a", "b", ["region"])
+    with pytest.raises(WhatChangedError, match="on one side only"):
+        decompose(cube, ["region"])
+    result = decompose(cube, ["region"], missing="entry_exit")
+    parts = result.components.set_index("component")["contribution"]
+    assert parts["entered"] == pytest.approx(30.0) and parts["left"] == pytest.approx(-20.0)
+    assert parts.sum() == pytest.approx(result.change)
+
+
+def test_volume_and_value_agree_through_duckdb():
+    import duckdb
+
+    from whatchanged import Sum, compare
+
+    df = revenue_table()
+    con = duckdb.connect()
+    con.register("t", df)
+    sql = compare(con, Sum("revenue", units="units"), "side", "a", "b", ["region"], name="t")
+    ref = compare(df, Sum("revenue", units="units"), "side", "a", "b", ["region"])
+    a = sql.decompose(missing="entry_exit").components.set_index("component")["contribution"]
+    b = ref.decompose(missing="entry_exit").components.set_index("component")["contribution"]
+    pd.testing.assert_series_equal(a.sort_index(), b.sort_index())
