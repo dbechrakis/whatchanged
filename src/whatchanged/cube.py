@@ -105,3 +105,94 @@ def aggregate(
                     f"the denominator of {metric.name} is zero on the side {split} == {value!r}"
                 )
     return Cube(metric, tuple(dimensions), cells, split, baseline, current)
+
+
+def quote(identifier: str) -> str:
+    """Quote an SQL identifier. Values are passed as parameters and never formatted in."""
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def aggregate_sql(
+    connection: Any,
+    table: str,
+    metric: Metric,
+    split: str,
+    baseline: Any,
+    current: Any,
+    dimensions: list[str],
+) -> Cube:
+    """The same cells as ``aggregate``, aggregated by DuckDB. Only the cells come back."""
+    if not dimensions:
+        raise WhatChangedError("give at least one dimension")
+    if len(set(dimensions)) != len(dimensions):
+        raise WhatChangedError(f"the dimensions repeat a name: {dimensions}")
+    if split in dimensions:
+        raise WhatChangedError(f"the split column {split!r} cannot also be a dimension")
+    if baseline == current:
+        raise WhatChangedError("the baseline and the current value are the same")
+    try:
+        known = [row[0] for row in connection.execute(f"DESCRIBE {quote(table)}").fetchall()]
+    except Exception as error:
+        raise WhatChangedError(f"cannot read the table {table!r}: {error}") from error
+    needed = [metric.numerator, *dimensions, split]
+    if metric.denominator is not None:
+        needed.append(metric.denominator)
+    missing = [c for c in needed if c not in known]
+    if missing:
+        raise WhatChangedError(f"unknown column(s) {missing}: the table has {known}")
+    for value in (baseline, current):
+        found = connection.execute(
+            f"SELECT COUNT(*) FROM {quote(table)} WHERE {quote(split)} = ?", [value]
+        ).fetchall()[0][0]
+        if not found:
+            raise WhatChangedError(f"no rows have {split} == {value!r}")
+    for column in dimensions:
+        nulls = connection.execute(
+            f"SELECT COUNT(*) FROM {quote(table)} WHERE {quote(column)} IS NULL "
+            f"AND {quote(split)} IN (?, ?)",
+            [baseline, current],
+        ).fetchall()[0][0]
+        if nulls:
+            raise WhatChangedError(
+                f"the dimension {column!r} has missing values: fill or drop them first"
+            )
+    select = [quote(d) for d in dimensions]
+    params: list[Any] = []
+    for side, value in zip(SIDES, (baseline, current), strict=True):
+        test = f"{quote(split)} = ?"
+        select.append(
+            f"SUM(CASE WHEN {test} THEN CAST({quote(metric.numerator)} AS DOUBLE) END) "
+            f"AS num_{side}"
+        )
+        params.append(value)
+        if isinstance(metric, Sum):
+            continue
+        if metric.denominator is None:
+            select.append(f"SUM(CASE WHEN {test} THEN 1.0 END) AS den_{side}")
+        else:
+            select.append(
+                f"SUM(CASE WHEN {test} THEN CAST({quote(metric.denominator)} AS DOUBLE) END) "
+                f"AS den_{side}"
+            )
+        params.append(value)
+    query = (
+        f"SELECT {', '.join(select)} FROM {quote(table)} "
+        f"WHERE {quote(split)} IN (?, ?) GROUP BY {', '.join(quote(d) for d in dimensions)}"
+    )
+    cells = connection.execute(query, [*params, baseline, current]).df()
+    cells = cells.sort_values(dimensions).reset_index(drop=True)
+    if isinstance(metric, Sum):
+        cells["den_base"] = float("nan")
+        cells["den_cur"] = float("nan")
+    for column in ("num_base", "num_cur"):
+        cells[column] = cells[column].fillna(0.0).astype(float)
+    if not metric.additive:
+        for column in ("den_base", "den_cur"):
+            cells[column] = cells[column].fillna(0.0).astype(float)
+        for side, value in zip(SIDES, (baseline, current), strict=True):
+            if float(cells[f"den_{side}"].sum()) == 0.0:
+                raise WhatChangedError(
+                    f"the denominator of {metric.name} is zero on the side {split} == {value!r}"
+                )
+    cells = cells[[*dimensions, "num_base", "den_base", "num_cur", "den_cur"]]
+    return Cube(metric, tuple(dimensions), cells, split, baseline, current)

@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 
 from whatchanged.attribute import SPREAD_AT, TEEP, TEP, TOP_K, explain
-from whatchanged.cube import Cube, aggregate
+from whatchanged.cube import Cube, aggregate, aggregate_sql, quote
 from whatchanged.decompose import Missing, decompose
 from whatchanged.errors import WhatChangedError
 from whatchanged.metrics import Metric
@@ -26,13 +26,30 @@ def _fmt(value: float) -> str:
 class Comparison:
     """Two sides of a table, ready to be decomposed, searched and checked for noise."""
 
-    table: pd.DataFrame
+    table: pd.DataFrame | None
     metric: Metric
     split: str
     baseline: Any
     current: Any
     dimensions: tuple[str, ...]
     cube: Cube
+    connection: Any = None
+    table_name: str | None = None
+
+    def _rows(self, unit: str | None) -> pd.DataFrame:
+        if self.table is not None:
+            return self.table
+        columns = [self.split, *self.dimensions, self.metric.numerator]
+        if self.metric.denominator is not None:
+            columns.append(self.metric.denominator)
+        if unit is not None:
+            columns.append(unit)
+        names = ", ".join(quote(c) for c in dict.fromkeys(columns))
+        query = (
+            f"SELECT {names} FROM {quote(str(self.table_name))} WHERE {quote(self.split)} IN (?, ?)"
+        )
+        rows: pd.DataFrame = self.connection.execute(query, [self.baseline, self.current]).df()
+        return rows
 
     @property
     def change(self) -> Change:
@@ -77,7 +94,7 @@ class Comparison:
         Without ``segments`` the segments named by ``explain`` are checked."""
         chosen = segments if segments is not None else list(self.explain(method=method).segments)
         return noise_check(
-            self.table,
+            self._rows(unit),
             self.metric,
             self.split,
             self.baseline,
@@ -136,13 +153,22 @@ class Comparison:
 
 
 def compare(
-    table: pd.DataFrame,
+    table: Any,
     metric: Metric,
     split: str,
     baseline: Any,
     current: Any,
     dimensions: list[str],
+    name: str | None = None,
 ) -> Comparison:
-    """Compare two values of the ``split`` column of a table over some dimensions."""
-    cube = aggregate(table, metric, split, baseline, current, list(dimensions))
-    return Comparison(table, metric, split, baseline, current, tuple(dimensions), cube)
+    """Compare two values of the ``split`` column of a table over some dimensions.
+
+    ``table`` is a pandas DataFrame, or a DuckDB connection with the table's name in ``name``.
+    With a connection the aggregation runs in SQL and only the cells come back."""
+    if isinstance(table, pd.DataFrame):
+        cube = aggregate(table, metric, split, baseline, current, list(dimensions))
+        return Comparison(table, metric, split, baseline, current, tuple(dimensions), cube)
+    if name is None:
+        raise WhatChangedError("give the table name in 'name' when passing a DuckDB connection")
+    cube = aggregate_sql(table, name, metric, split, baseline, current, list(dimensions))
+    return Comparison(None, metric, split, baseline, current, tuple(dimensions), cube, table, name)
