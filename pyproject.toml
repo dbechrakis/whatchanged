@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "whatchanged"
+dynamic = ["version"]
+description = "Which segment explains a change in a business metric. Exact decomposition, a heuristic search and a noise check, each labelled."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Dimitrios Bechrakis" }]
+keywords = ["metrics", "root cause", "decomposition", "adtributor", "analytics"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "License :: OSI Approved :: MIT License",
+  "Typing :: Typed",
+]
+dependencies = ["numpy>=1.23", "pandas>=2.0"]
+
+[project.optional-dependencies]
+duckdb = ["duckdb>=1.0"]
+dev = ["pytest>=8", "hypothesis>=6.100", "ruff", "mypy", "pandas-stubs", "duckdb>=1.0", "build", "twine"]
+docs = ["mkdocs>=1.6", "mkdocs-material>=9.5"]
+
+[project.scripts]
+whatchanged = "whatchanged.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/dbechrakis/whatchanged"
+Issues = "https://github.com/dbechrakis/whatchanged/issues"
+
+[tool.hatch.version]
+path = "src/whatchanged/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/whatchanged"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
+plugins = []
