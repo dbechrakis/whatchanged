@@ -40,16 +40,18 @@ orders = pd.read_parquet("orders.parquet")
 
 result = wc.compare(
     orders,
-    metric=wc.Ratio("profit", "sales"),          # or wc.Sum("revenue"), wc.Mean("basket")
-    split="month", baseline="2026-09", current="2026-10",
+    metric=wc.Ratio("profit", "sales"),  # or wc.Sum("revenue"), wc.Mean("basket")
+    split="month",
+    baseline="2026-09",
+    current="2026-10",
     dimensions=["region", "category", "channel"],
 )
 
-result.change                      # the metric in each period and the difference
-result.decompose(by=["category", "subcategory"])   # exact: mix against rate, sums to the change
-result.explain()                   # heuristic: the few segments that account for most of it
-result.noise(unit="order_id")      # statistical: is each contribution outside its usual range
-print(result.summary())            # five lines a manager can read
+result.change  # the metric in each period and the difference
+result.decompose(by=["category", "subcategory"])  # exact: mix against rate, sums to the change
+result.explain()  # heuristic: the few segments that account for most of it
+result.noise(unit="order_id")  # statistical: is each contribution outside its usual range
+print(result.summary())  # five lines a manager can read
 ```
 
 And from a shell:
