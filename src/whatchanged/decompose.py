@@ -102,10 +102,12 @@ def decompose(cube: Cube, by: list[str], missing: Missing = "error") -> Decompos
     only_base = present_base & ~present_cur
     both = present_base & present_cur
     if (only_cur | only_base).any() and missing == "error":
-        names = leaves.loc[only_cur | only_base, by].astype(str).agg(" / ".join, axis=1).tolist()
+        found = leaves.loc[only_cur | only_base, by].astype(str).agg(" / ".join, axis=1).tolist()
+        shown = ", ".join(found[:5]) + (f" and {len(found) - 5} more" if len(found) > 5 else "")
         raise WhatChangedError(
-            f"cells present on one side only: {names}. A rate cannot be invented for them. "
-            "Use missing='entry_exit' to report them as 'entered' and 'left'."
+            f"{len(found)} cell(s) present on one side only, such as {shown}. "
+            "A rate cannot be invented for them. "
+            "Use missing='entry_exit' to report them as 'entered' and 'left', or fewer levels."
         )
     d0_total = float(leaves["den_base"].sum())
     d1_total = float(leaves["den_cur"].sum())

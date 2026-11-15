@@ -163,7 +163,7 @@ def two_sided_missing() -> pd.DataFrame:
 
 def test_cells_on_one_side_only_are_refused_by_default_and_reported_with_entry_exit():
     cube = build(two_sided_missing(), ["d0"])
-    with pytest.raises(WhatChangedError, match="one side only"):
+    with pytest.raises(WhatChangedError, match="on one side only"):
         decompose(cube, ["d0"])
     result = decompose(cube, ["d0"], missing="entry_exit")
     parts = result.components.set_index("component")["contribution"]
