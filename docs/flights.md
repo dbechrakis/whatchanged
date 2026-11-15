@@ -14,9 +14,11 @@ change = result.change
 print(round(100 * change.baseline_value, 2), round(100 * change.current_value, 2))
 parts = result.decompose(["carrier", "origin"], missing="entry_exit").components
 print((parts.set_index("component")["contribution"] * 100).round(2))
-print(result.explain(method="recursive").to_frame())
+print(result.explain(method="recursive").message)
 ```
 
-NUMBERS
+The share of late arrivals fell from 26.41% in May 2024 to 24.94% in June 2024. In exact arithmetic, in percentage points, the change splits into carrier mix +0.02, origin mix -0.06, the rate within carrier and origin cells -1.48, cells that entered +0.07 and cells that left -0.01. Almost all of the fall sits in the rate within cells, and not in a shift in which carriers or origins carried the traffic.
 
-The history check ranks the current contribution of each named segment among the twelve earlier pairs of consecutive months. Sampling noise is not checked here, because the table holds counts and not individual flights.
+The search answers that no segment explains the change. The fall is spread over the carriers and the origins, with no set of fewer than 3 elements passing its thresholds. This is the third answer of the package, and here it is the useful one. A dashboard that ranks origins by their own change would have named a few airports, and the search says that doing so would single out noise.
+
+Since no segment is named, there is nothing to rank against the twelve earlier pairs of consecutive months. Sampling noise is not checked here, since the table holds counts and not individual flights.

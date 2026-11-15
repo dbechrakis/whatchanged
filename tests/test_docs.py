@@ -13,7 +13,7 @@ def python_blocks(path: str) -> list[str]:
 
 def test_the_documentation_code_blocks_run(monkeypatch, capsys):
     monkeypatch.chdir(ROOT)
-    for page in ("docs/index.md", "docs/case-study.md"):
+    for page in ("docs/index.md", "docs/case-study.md", "docs/flights.md"):
         namespace: dict[str, object] = {}
         for block in python_blocks(page):
             exec(compile(block, page, "exec"), namespace)

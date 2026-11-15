@@ -32,22 +32,10 @@ def test_the_decomposition_adds_up_and_the_page_quotes_it():
         assert f"{100 * row.contribution:+.2f}" in text, row.component
 
 
-def test_the_history_ranks_are_between_zero_and_one_and_quoted():
+def test_the_search_says_that_no_segment_explains_the_change():
     cells, result = case()
     explanation = result.explain(method="recursive")
-    months = sorted(cells["month"].unique())
-    pairs = [(months[i], months[i + 1]) for i in range(len(months) - 2)]
-    assert len(pairs) == 12
-    check = result.noise(segments=list(explanation.segments), history=pairs, n_boot=20)
-    if check.history is not None:
-        assert check.history["rank_in_history"].between(0, 1).all()
-        text = (ROOT / "docs" / "flights.md").read_text()
-        for row in check.history.itertuples():
-            assert f"{row.rank_in_history:.2f}" in text
-    assert (
-        re.search(
-            r"cause|because",
-            (ROOT / "docs" / "flights.md").read_text().replace("does not say why", ""),
-        )
-        is None
-    )
+    assert explanation.found is False and "No segment explains" in explanation.message
+    text = (ROOT / "docs" / "flights.md").read_text()
+    assert "no segment explains the change" in text
+    assert re.search(r"cause|because", text.replace("does not say why", "")) is None

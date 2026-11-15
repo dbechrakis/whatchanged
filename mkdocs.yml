@@ -9,6 +9,7 @@ nav:
   - Reference: api.md
   - Benchmark: benchmark.md
   - A worked case: case-study.md
+  - A second case, flights: flights.md
 plugins:
   - search
   - mkdocstrings:
