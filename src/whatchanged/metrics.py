@@ -9,9 +9,13 @@ from whatchanged.errors import WhatChangedError
 
 @dataclass(frozen=True)
 class Sum:
-    """The sum of a column. Additive: the cells add up to the total."""
+    """The sum of a column. Additive: the cells add up to the total.
+
+    Name a unit count in ``units`` to let ``decompose`` split the change into volume and value
+    per unit."""
 
     column: str
+    units: str | None = None
 
     @property
     def name(self) -> str:

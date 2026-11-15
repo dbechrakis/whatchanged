@@ -72,7 +72,7 @@ What to do with this. Treat `explain` as a pointer to look at, not a finding. Re
 - Sampling noise is checked. Seasonality, data errors and definition changes are not.
 - Dimensions with thousands of elements are slow in 0.1.0 and are not benchmarked.
 - The decomposition allows at most five nested levels, since the number of orders grows as a factorial.
-- Splitting a sum into volume and value per unit is not in 0.1.0.
+- A sum splits into volume and value per unit only when you name a unit count with `Sum(column, units=...)`.
 
 ## DuckDB
 

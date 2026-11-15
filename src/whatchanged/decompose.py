@@ -11,6 +11,7 @@ import pandas as pd
 
 from whatchanged.cube import Cube
 from whatchanged.errors import WhatChangedError
+from whatchanged.metrics import Sum
 from whatchanged.result import Decomposition
 
 MAX_FACTORS = 6
@@ -36,9 +37,61 @@ def _leaf_table(cube: Cube, by: list[str]) -> pd.DataFrame:
     if len(set(by)) != len(by):
         raise WhatChangedError(f"the 'by' list repeats a name: {by}")
     sums = ["num_base", "den_base", "num_cur", "den_cur"]
-    if cube.metric.additive:
+    if cube.metric.additive and not _has_units(cube):
         sums = ["num_base", "num_cur"]
     return cube.cells.groupby(by, observed=True, sort=True)[sums].sum().reset_index()
+
+
+def _has_units(cube: Cube) -> bool:
+    return isinstance(cube.metric, Sum) and cube.metric.units is not None
+
+
+def _decompose_units(cube: Cube, by: list[str], missing: Missing) -> Decomposition:
+    leaves = _leaf_table(cube, by)
+    both = (leaves["den_base"] > 0) & (leaves["den_cur"] > 0)
+    odd = leaves[~both & ((leaves["den_base"] > 0) | (leaves["den_cur"] > 0))]
+    if len(odd) and missing == "error":
+        found = odd[by].astype(str).agg(" / ".join, axis=1).tolist()
+        shown = ", ".join(found[:5]) + (f" and {len(found) - 5} more" if len(found) > 5 else "")
+        raise WhatChangedError(
+            f"{len(found)} cell(s) present on one side only, such as {shown}. "
+            "A value per unit cannot be invented for them. "
+            "Use missing='entry_exit' to report them as 'entered' and 'left'."
+        )
+    keep = leaves[both]
+    u0, u1 = keep["den_base"], keep["den_cur"]
+    p0, p1 = keep["num_base"] / u0, keep["num_cur"] / u1
+    parts = {
+        "volume": (u1 - u0) * (p0 + p1) / 2,
+        "value": (p1 - p0) * (u0 + u1) / 2,
+    }
+    cell_parts = []
+    rows = []
+    for name, contribution in parts.items():
+        frame = keep[by].copy()
+        frame["component"] = name
+        frame["contribution"] = contribution
+        cell_parts.append(frame)
+        rows.append({"component": name, "contribution": float(contribution.sum())})
+    only_cur = odd[odd["den_cur"] > 0]
+    only_base = odd[odd["den_base"] > 0]
+    for name, frame, sign, column in (
+        ("entered", only_cur, 1.0, "num_cur"),
+        ("left", only_base, -1.0, "num_base"),
+    ):
+        if len(frame):
+            part = frame[by].copy()
+            part["component"] = name
+            part["contribution"] = sign * frame[column].to_numpy()
+            cell_parts.append(part)
+            rows.append({"component": name, "contribution": float(part["contribution"].sum())})
+    base, cur = float(leaves["num_base"].sum()), float(leaves["num_cur"].sum())
+    components = pd.DataFrame(rows)
+    _check(float(components["contribution"].sum()), cur - base)
+    change = cur - base
+    components["share_of_change"] = components["contribution"] / change if change != 0 else 0.0
+    cells = pd.concat(cell_parts, ignore_index=True)
+    return Decomposition(cube.metric.name, tuple(by), base, cur, components, cells, missing)
 
 
 def _decompose_sum(cube: Cube, by: list[str]) -> Decomposition:
@@ -83,6 +136,8 @@ def decompose(cube: Cube, by: list[str], missing: Missing = "error") -> Decompos
     by = list(by)
     if not by:
         raise WhatChangedError("give at least one dimension in 'by'")
+    if _has_units(cube):
+        return _decompose_units(cube, by, missing)
     if cube.metric.additive:
         return _decompose_sum(cube, by)
     n_factors = len(by) + 1

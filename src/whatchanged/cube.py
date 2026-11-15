@@ -66,6 +66,8 @@ def aggregate(
     needed = [metric.numerator, *dimensions, split]
     if metric.denominator is not None:
         needed.append(metric.denominator)
+    if isinstance(metric, Sum) and metric.units is not None:
+        needed.append(metric.units)
     _check_columns(df, needed)
     if split in dimensions:
         raise WhatChangedError(f"the split column {split!r} cannot also be a dimension")
@@ -84,7 +86,7 @@ def aggregate(
         work = pd.DataFrame({column: rows[column] for column in dimensions})
         work["num"] = rows[metric.numerator].astype(float)
         if isinstance(metric, Sum):
-            work["den"] = float("nan")
+            work["den"] = float("nan") if metric.units is None else rows[metric.units].astype(float)
         elif metric.denominator is None:
             work["den"] = 1.0
         else:
@@ -96,6 +98,9 @@ def aggregate(
     cells = parts["base"].join(parts["cur"], how="outer").reset_index()
     for column in ("num_base", "num_cur"):
         cells[column] = cells[column].fillna(0.0)
+    if isinstance(metric, Sum) and metric.units is not None:
+        for column in ("den_base", "den_cur"):
+            cells[column] = cells[column].fillna(0.0)
     if not metric.additive:
         for column in ("den_base", "den_cur"):
             cells[column] = cells[column].fillna(0.0)
@@ -137,6 +142,8 @@ def aggregate_sql(
     needed = [metric.numerator, *dimensions, split]
     if metric.denominator is not None:
         needed.append(metric.denominator)
+    if isinstance(metric, Sum) and metric.units is not None:
+        needed.append(metric.units)
     missing = [c for c in needed if c not in known]
     if missing:
         raise WhatChangedError(f"unknown column(s) {missing}: the table has {known}")
@@ -165,9 +172,14 @@ def aggregate_sql(
             f"AS num_{side}"
         )
         params.append(value)
-        if isinstance(metric, Sum):
+        if isinstance(metric, Sum) and metric.units is None:
             continue
-        if metric.denominator is None:
+        if isinstance(metric, Sum):
+            select.append(
+                f"SUM(CASE WHEN {test} THEN CAST({quote(str(metric.units))} AS DOUBLE) END) "
+                f"AS den_{side}"
+            )
+        elif metric.denominator is None:
             select.append(f"SUM(CASE WHEN {test} THEN 1.0 END) AS den_{side}")
         else:
             select.append(
@@ -181,11 +193,14 @@ def aggregate_sql(
     )
     cells = connection.execute(query, [*params, baseline, current]).df()
     cells = cells.sort_values(dimensions).reset_index(drop=True)
-    if isinstance(metric, Sum):
+    if isinstance(metric, Sum) and metric.units is None:
         cells["den_base"] = float("nan")
         cells["den_cur"] = float("nan")
     for column in ("num_base", "num_cur"):
         cells[column] = cells[column].fillna(0.0).astype(float)
+    if isinstance(metric, Sum) and metric.units is not None:
+        for column in ("den_base", "den_cur"):
+            cells[column] = cells[column].fillna(0.0).astype(float)
     if not metric.additive:
         for column in ("den_base", "den_cur"):
             cells[column] = cells[column].fillna(0.0).astype(float)
